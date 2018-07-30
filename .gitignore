@@ -1,0 +1,7 @@
+*.csv
+*.xlsx
+.idea/
+.ipynb_checkpoints/
+sqlCredentials.py
+crawlera_proxies.py
+__pycache__
