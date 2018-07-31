@@ -9,6 +9,7 @@ import time
 import urllib3
 import datetime
 import crawlera_proxies
+import re
 
 _SESSION = requests.session()
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -139,7 +140,10 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
             stripped_pub = list(pub['result'].values())[1]
             title = stripped_pub['title']
             author_names = " and ".join([y['name'] for y in stripped_pub['authors']])
-            year = int(stripped_pub['pubdate'][0:4])
+            try:
+                year = int(stripped_pub['pubdate'][0:4])
+            except ValueError:
+                year = re.search(r"(\d{4})", stripped_pub['pubdate']).group(1)
             journal = stripped_pub['fulljournalname']
             raw = json.dumps(pub)
             cited_by = stripped_pub['pmcrefcount']
