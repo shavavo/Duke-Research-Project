@@ -87,7 +87,7 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
         result_columns = list(input_df.columns.values)
         result_columns = np.append(result_columns,
                                    ['article_title', 'authors', 'year', 'journal', 'raw',
-                                    'cited_by', 'date_collected'])
+                                    'cited_by', 'date_collected', 'source'])
         result_df = pd.DataFrame(columns=result_columns)
 
     # Names of authors that returned no search result
@@ -156,6 +156,7 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
             new_row.append(raw)
             new_row.append(cited_by)
             new_row.append(date)
+            new_row.append("PubMed")
 
             # Append row to dataframe
             result_df.loc[result_df.shape[0]] = new_row
