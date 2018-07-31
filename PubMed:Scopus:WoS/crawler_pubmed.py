@@ -57,7 +57,7 @@ def get_pubmed_pub(pubid):
 
     content = get_page_content(full_url)
 
-    if content == None:
+    if content is None:
         return []
 
     x = json.loads(content)
@@ -65,8 +65,11 @@ def get_pubmed_pub(pubid):
     return x
 
 
-def get_author_pubs(name, affilation):
-    pub_ids = search_pubmed("(" + name + "[Author]) AND " + affilation + "[Affiliation]")
+def get_author_pubs(name, affiliation):
+    if affiliation is np.NaN:
+        pub_ids = search_pubmed("(" + name + "[Author])")
+    else:
+        pub_ids = search_pubmed("(" + name + "[Author]) AND " + affiliation + "[Affiliation]")
 
     pubs = []
     for pub_id in pub_ids:
@@ -119,8 +122,6 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
             print("No results for " + full_name + ". Added to manual review.")
             continue
 
-
-
         print("Found " + str(len(pubs)) + " publications")
 
         # Construct base row that is constant between author
@@ -158,6 +159,10 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
         # Save to dataframe each time done with author
         result_df.to_csv(save_name)
         print("Completed")
+
+        f = open('manualreview_pubmed.txt', 'w')
+        f.write('\n'.join([x for x in manual_check]))
+        f.close()
 
     print("No results were found for: ")
     print(" ".join(manual_check))
