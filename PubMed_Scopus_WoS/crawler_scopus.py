@@ -19,7 +19,11 @@ def get_author_name(x):
 
 
 def search_author_pubs(first, last, affil):
-    s = AuthorSearch('AUTHLASTNAME(' + last + ') and AUTHFIRST(' + first + ') and AFFIL(' + affil + ')', refresh=True)
+    if affil is np.NaN:
+        print("No affil..")
+        s = AuthorSearch('AUTHLASTNAME(' + last + ') and AUTHFIRST(' + first + ')', refresh=True)
+    else:
+        s = AuthorSearch('AUTHLASTNAME(' + last + ') and AUTHFIRST(' + first + ') and AFFIL(' + affil + ')', refresh=True)
 
     if len(s.authors) == 0:
         print("Narrowing search to name only")
@@ -42,11 +46,9 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
         result_df = pd.read_csv(load_from, index_col=0)
     else:
         result_columns = list(input_df.columns.values)
-        result_columns.remove("UID")
-        result_columns.remove("ScholarID")
         result_columns = np.append(result_columns,
-                                   ['article_title', 'authors', 'year', 'journal', 'reference',
-                                    'raw', 'date_collected'])
+                                   ['article_title', 'authors', 'year', 'journal',
+                                    'raw', 'date_collected', 'source'])
         result_df = pd.DataFrame(columns=result_columns)
 
 
@@ -59,7 +61,10 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
     for index, row in input_df[start:].iterrows():
         full_name = row['NameFirst'] + " " + row['NameLast']
         institution = row['institution_name']
+        curr_time = datetime.datetime.now().strftime("%m-%d %H:%M")
 
+        print(curr_time + ": Working on " + full_name + " - " + str(index) + " of " + str(
+            input_df.shape[0]))
 
         pubs = None
         retry_count = 0
@@ -73,7 +78,6 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
                 
                 print("Encountered error: " + str(e))
                 time.sleep(60)
-                pubs = search_author_pubs(row['NameFirst'], row['NameLast'], institution)
                 retry_count += 1
 
 
@@ -83,11 +87,7 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
             print("No results for " + full_name + ". Added to manual review.")
             continue
 
-        curr_time = datetime.datetime.now().strftime("%m-%d %H:%M")
-
-        print(curr_time + ": Working on " + full_name + " - " + str(index + 1) + " of " + str(
-            input_df.shape[0]) + ' (' + str(len(pubs)) + '): ')
-
+        print("Found " + str(len(pubs)) + " publications")
 
         # Construct base row that is constant between author
         base_row = []
@@ -96,6 +96,7 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
         base_row.append(row['institution_name'])
         base_row.append(row['profession_role'])
         base_row.append(row['dept_current'])
+
 
         # Create rows that extend the base row for each publication for an author
         for pub in pubs:
@@ -126,6 +127,7 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
             new_row.append(raw)
             new_row.append(cited_by)
             new_row.append(date)
+            new_row.append("Scopus")
 
             # Append row to dataframe
             result_df.loc[result_df.shape[0]] = new_row
@@ -133,6 +135,10 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
         # Save to dataframe each time done with author
         result_df.to_csv(save_name)
         print("Completed")
+
+        f = open('manualreview_scopus.txt', 'w')
+        f.write('\n'.join([x for x in manual_check]))
+        f.close()
 
     print("No results were found for: ")
     print(" ".join(manual_check))
@@ -145,9 +151,6 @@ def main():
     example_df = pd.read_csv('all_researchers.csv')
     start_crawler(example_df, 'NESCent_Scopus.csv')
     print("Completed")
-
-
-
 
 
 if __name__ == "__main__":
