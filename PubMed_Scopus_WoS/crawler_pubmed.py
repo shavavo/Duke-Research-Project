@@ -10,6 +10,8 @@ import urllib3
 import datetime
 import crawlera_proxies
 import re
+import xml.dom.minidom
+from tqdm import tqdm
 
 _SESSION = requests.session()
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -54,29 +56,41 @@ def search_pubmed(query):
 
 
 def get_pubmed_pub(pubid):
-    full_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?retmode=json&db=pubmed&id=" + pubid
+    full_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=" + pubid + "&retmode=xml"
 
     content = get_page_content(full_url)
-
+    
     if content is None:
         return []
-
-    x = json.loads(content)
-
-    return x
+    
+    e = xml.dom.minidom.parseString(content)
+    
+    content2 = get_page_content('https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=' + pubid + '&retmode=json')
+    x = json.loads(content2)
+    stripped_pub = list(x['result'].values())[1]
+    
+    return e, stripped_pub['pmcrefcount']
 
 
 def get_author_pubs(name, affiliation):
-    if affiliation is np.NaN:
-        pub_ids = search_pubmed("(" + name + "[Author])")
-    else:
-        pub_ids = search_pubmed("(" + name + "[Author]) AND " + affiliation + "[Affiliation]")
+    pub_ids = search_pubmed("(" + name + "[Author])")
 
     pubs = []
-    for pub_id in pub_ids:
-        pubs.append(get_pubmed_pub(pub_id))
+    refs = []
 
-    return pubs
+    print("Found " + str(len(pub_ids)) + " publications")
+
+    # Progress bar properties
+    tqdm_pub_ids = tqdm(pub_ids)
+    tqdm_pub_ids.ncols = 80
+    tqdm_pub_ids.leave = False
+
+    for pub_id in tqdm_pub_ids:
+        x, y = get_pubmed_pub(pub_id)
+        pubs.append(x)
+        refs.append(y)
+
+    return pubs, refs
 
 
 def start_crawler(input_df, save_name, start=0, load_from=None):
@@ -86,8 +100,8 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
     else:
         result_columns = list(input_df.columns.values)
         result_columns = np.append(result_columns,
-                                   ['article_title', 'authors', 'year', 'journal', 'raw',
-                                    'cited_by', 'date_collected', 'source'])
+                                   ['article_title', 'year', 'authors', 'journal', 'abstract', 
+                                    'cited_by', 'raw', 'source', 'date_collected'])
         result_df = pd.DataFrame(columns=result_columns)
 
     # Names of authors that returned no search result
@@ -103,10 +117,11 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
             input_df.shape[0]))
 
         pubs = None
+        refs = None
         retry_count = 0
         while True:
             try:
-                pubs = get_author_pubs(full_name, institution)
+                pubs, refs = get_author_pubs(full_name, institution)
                 break
             except Exception as e:
                 if retry_count > 3:
@@ -117,13 +132,7 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
                 time.sleep(60)
                 retry_count += 1
 
-        # If no search result add to manual review and skip
-        if pubs is None:
-            manual_check.append(full_name)
-            print("No results for " + full_name + ". Added to manual review.")
-            continue
-
-        print("Found " + str(len(pubs)) + " publications")
+        
 
         # Construct base row that is constant between author
         base_row = []
@@ -134,30 +143,41 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
         base_row.append(row['dept_current'])
 
         # Create rows that extend the base row for each publication for an author
-        for pub in pubs:
+        for pub, ref in zip(pubs, refs):
             new_row = base_row[:]
 
-            stripped_pub = list(pub['result'].values())[1]
-            title = stripped_pub['title']
-            author_names = " and ".join([y['name'] for y in stripped_pub['authors']])
+            
+            title = pub.getElementsByTagName("ArticleTitle")[0].firstChild.data
+            author_names = " and ".join([x.getElementsByTagName("ForeName")[0].firstChild.data + " " + x.getElementsByTagName("LastName")[0].firstChild.data for x in pub.getElementsByTagName("Author")])
             try:
-                year = int(stripped_pub['pubdate'][0:4])
-            except ValueError:
-                year = re.search(r"(\d{4})", stripped_pub['pubdate']).group(1)
-            journal = stripped_pub['fulljournalname']
-            raw = json.dumps(pub)
-            cited_by = stripped_pub['pmcrefcount']
+                year = int(pub.getElementsByTagName("PubDate")[0].getElementsByTagName("Year")[0].firstChild.data)
+            except IndexError:
+                year = int(pub.getElementsByTagName("MedlineDate")[0].firstChild.data[0:4])
+
+            try:
+                abstract = pub.getElementsByTagName("AbstractText")[0].firstChild.data
+            except IndexError:
+                abstract = ""
+
+            try:
+                journal = pub.getElementsByTagName("Journal")[0].getElementsByTagName("Title")[0].firstChild.data
+            except IndexError:
+                journal = ""
+
+            raw = pub.toxml().replace('\n', '')
+            cited_by = ref
             date = datetime.datetime.today().strftime('%Y-%m-%d')
 
             new_row.append(title)
-            new_row.append(author_names)
             new_row.append(year)
+            new_row.append(author_names)
             new_row.append(journal)
-            new_row.append(raw)
+            new_row.append(abstract)
             new_row.append(cited_by)
-            new_row.append(date)
+            new_row.append(raw)
             new_row.append("PubMed")
-
+            new_row.append(date)
+            
             # Append row to dataframe
             result_df.loc[result_df.shape[0]] = new_row
 
@@ -170,7 +190,7 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
         f.close()
 
     print("No results were found for: ")
-    print(" ".join(manual_check))
+    print("\n".join(manual_check))
 
     return result_df, manual_check
 

@@ -30,14 +30,11 @@ def search_author_pubs(first, last, affil):
         s = AuthorSearch('AUTHLASTNAME(' + first + ') and AUTHFIRST(' + last + ')', refresh=True)
 
         if s._json == []:
-            print("Found no results..")
             return None
 
-    scopus_author = scopus.ScopusAuthor(s.authors[0].eid)
-
     if len(s.authors)==1:
-        return scopus_author.get_abstracts()
-    return None
+        return scopus.ScopusAuthor(s.authors[0].eid).get_abstracts()
+    return -1
 
 
 def start_crawler(input_df, save_name, start=0, load_from=None):
@@ -54,7 +51,8 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
 
 
     # Names of authors that returned no search result
-    manual_check = []
+    no_results = []
+    multiple_results = []
 
     # For each publication, construct new row
     # NOTE: takes about 6s for each publication (query delay)
@@ -82,9 +80,13 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
 
 
         # If no search result add to manual review and skip
-        if pubs is None:
-            manual_check.append(full_name)
-            print("No results for " + full_name + ". Added to manual review.")
+        if pubs == -1:
+            multiple_results.append(full_name)
+            print("Multiple results for " + full_name + ". Added to multiple results review.")
+            continue
+        if pubs == None:
+            no_results.append(full_name)
+            print("No results for " + full_name + ". Added to no results review.")
             continue
 
         print("Found " + str(len(pubs)) + " publications")
@@ -136,14 +138,16 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
         result_df.to_csv(save_name)
         print("Completed")
 
-        f = open('manualreview_scopus.txt', 'w')
-        f.write('\n'.join([x for x in manual_check]))
+        f = open('no_results_scopus.txt', 'w')
+        f.write('\n'.join([x for x in no_results]))
         f.close()
 
-    print("No results were found for: ")
-    print(" ".join(manual_check))
+        f2 = open('multiple_results_scopus.txt', 'w')
+        f2.write('\n'.join([x for x in multiple_results]))
+        f2.close()
 
-    return result_df, manual_check
+
+    return result_df
 
 
 def main():

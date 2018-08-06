@@ -55,8 +55,7 @@ def supress_warnings():
 
 
 def _get_page(pagerequest):
-    """Return the data for a page on scholar.google.com"""
-    # Note that we include a sleep to avoid overloading the scholar server
+    global _SESSION
 
     _GOOGLEID = hashlib.md5(str(random.random()).encode('utf-8')).hexdigest()[:16]
     _COOKIES = {'GSP': 'ID={0}:CF=4'.format(_GOOGLEID)}
@@ -67,6 +66,7 @@ def _get_page(pagerequest):
         return resp.text
     else:
         print("Encountered status code: " + str(resp.status_code))
+        _SESSION = requests.Session()
         return _get_page(pagerequest)
 
 

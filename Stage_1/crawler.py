@@ -1,3 +1,6 @@
+import os, sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath('__file__'))))
+
 import datetime
 import os
 import time
@@ -8,29 +11,9 @@ import pandas as pd
 import requests
 from tqdm import tqdm
 import scholarly_proxy as scholarly
+import json
+import bs4
 
-
-# NOTE: Use TOR and POLIPO proxy to avoid IP ban from too many queries
-#      Recommended: Set MaxCircuitDirtiness 60 in torcc file to refresh circuit more often 
-#      Before running script remember to start:
-#           tor
-#           pilipo
-# More Info: https://stackoverflow.com/questions/11443600/using-tor-and-python-to-scrape-google-scholar?rq=1
-
-# NOTE: scholarly also includes built in 5s wait time between queries
-
-# Result:
-# match_confidence
-# working_group (given)
-# participant_name (given)
-# google_scholar_page
-# article_title
-# authors
-# year
-# journal
-# article_reference
-# citations
-# date_collected
 
 # Printed on completion and interruption
 now = datetime.datetime.now()
@@ -38,8 +21,6 @@ last_author_name = ""
 last_author_index = 0
 start_time = now.strftime("%Y-%m-%d %H:%M")
 
-def check_tor_proxy():
-    return 'Congratulations' in requests.get('http://check.torproject.org/').text
 
 def get_author_by_scholarid(id):
     try:
@@ -47,61 +28,6 @@ def get_author_by_scholarid(id):
         return result
     except AttributeError:
         return None
-
-
-def get_author(name, inst):
-    # Try searching name and institution first
-    # If no results, search with just name
-    # If no results, return None to be handled later
-    try:
-        search_query = scholarly.search_author(name + " " + inst.replace('-', ' '))
-        result = next(search_query).fill()
-    except StopIteration:
-        try:
-            search_query = scholarly.search_author(name)
-            result = next(search_query).fill()
-        except StopIteration:
-            return None
-
-    return result
-
-
-def make_APA_citation(bib):
-    # Turns David B. Cheng into Cheng, D. B.
-    author_names = bib.get('author', '').split(' and ')
-    author_names_split = [list(reversed(name.split())) for name in author_names]
-    for author in author_names_split:
-        if len(author) == 0:
-            continue
-        
-        author[0] = author[0] + ','
-        author[-1] = author[-1][0] + '.'
-
-        if len(author) == 3:
-            author[1] = author[1] + '.'
-            # Switch front and middle inital
-            author[1], author[2] = author[2], author[1]
-
-    author_names_initial = [' '.join(name) for name in author_names_split]
-    if len(author_names_initial) > 1:
-        authors = ', '.join(author_names_initial[0:-2]) + ' & ' + author_names_initial[-1]
-    else:
-        authors = author_names_initial[0]
-
-    year = " (" + str(bib.get('year', 'n.d')) + "). "
-
-    title = bib.get('title', '') + '. '
-
-    journal = bib.get('journal', '') + ', ' + bib.get('volume', '(n.v.)') + "(" + bib.get('number', 'n.i.') + "), "
-    pages = bib.get('pages', '') + '. '
-    url = bib.get('url', '')
-
-    citation = authors + year + title + journal + pages
-
-    if url is not '':
-        citation += "Retrieved from " + url + '. '
-
-    return citation
 
 
 def start_crawler(input_df, save_name, start=0, load_from=None):
@@ -113,7 +39,7 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
         result_df = pd.read_csv(load_from, index_col=0)
     else:
         result_columns = input_df.columns.values
-        result_columns = np.append(result_columns, ['google_scholar_page', 'article_title', 'authors', 'year', 'journal', 'reference', 'citations', 'date_collected'])
+        result_columns = np.append(result_columns, ['google_scholar_page', 'article_title', 'year','authors',  'journal', 'abstract',  'cited_by', 'raw', 'source', 'date_collected'])
         result_df = pd.DataFrame(columns=result_columns)
 
     base_profile_url = "https://scholar.google.com/citations?user="
@@ -122,12 +48,9 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
     manual_check = []
 
 
-
     # For each publication, construct new row
-    # NOTE: takes about 6s for each publication (query delay)
     for index, row in input_df[start:].iterrows():
         full_name = row['NameFirst'] + " " + row['NameLast']
-        institution = row['institution_name']
         id = row['ScholarID']
 
         seconds = 60
@@ -152,7 +75,7 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
         curr_time = datetime.datetime.now().strftime("%m-%d %H:%M")
 
         # Progress (use tqdm.write() instead of print so it does not interfere with tqdm progress bars)
-        tqdm.write(curr_time + ": Working on " + author.name + " - " + str(index + 1) + " of " + str(input_df.shape[0]) + ' (' + str(len(author.publications)) + '): ')
+        tqdm.write(curr_time + ": Working on " + author.name + " - " + str(index) + " of " + str(input_df.shape[0]) + ' (' + str(len(author.publications)) + '): ')
 
         # Construct Profile URL
         scholar_page = base_profile_url + author.id
@@ -190,12 +113,21 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
             # Get all required data and append to row
             # Use get to avoid KeyValue Exceptions and define defaults (some publications do not have authors, for exm.)
             title = bib.get('title', '')
-            author_names = bib.get('author', '').replace(' and ', ', ')
+            author_names = bib.get('author', '')
             year = bib.get('year', np.NaN)
             journal = bib.get('journal', '')
+            abstract = bib.get('abstract', '')
 
-            # Create APA Citation from data given
-            citation = make_APA_citation(bib)
+            if isinstance(abstract, bs4.element.Tag):
+                abstract = abstract.text
+
+            raw_dict = vars(publication)
+
+            try:
+                raw_dict['bib']['abstract'] = abstract
+                raw = json.dumps(raw_dict)   
+            except KeyError:
+                raw = json.dumps(raw_dict)   
 
             date = datetime.datetime.today().strftime('%Y-%m-%d')
 
@@ -205,11 +137,13 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
                 cited_by = 0
 
             new_row.append(title)
-            new_row.append(author_names)
             new_row.append(year)
+            new_row.append(author_names)
             new_row.append(journal)
-            new_row.append(citation)
+            new_row.append(abstract)
             new_row.append(cited_by)
+            new_row.append(raw)
+            new_row.append("Google Scholar")
             new_row.append(date)
 
 
@@ -218,7 +152,7 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
             
 
         # Save to dataframe each time done with author
-        result_df.to_csv(save_name + '.csv')
+        result_df.to_csv(save_name)
         tqdm.write("Completed")
 
     pprint("No results were found for: ")
@@ -243,7 +177,7 @@ def main():
 
     try:
         scholarly.supress_warnings()
-        start_crawler(example_df, 'NESCent_ID', 440, load_from='NESCent_ID.csv')
+        start_crawler(example_df, 'NESCent_ID.csv', 2, 'NESCent_ID.csv')
         pprint("Completed")
         end_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
         pprint("Start: " + start_time + "   End:   " + end_time)
