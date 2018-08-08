@@ -19,6 +19,7 @@ import sys
 import time
 import urllib3
 import crawlera_proxies
+from tqdm import tqdm
 
 _GOOGLEID = hashlib.md5(str(random.random()).encode('utf-8')).hexdigest()[:16]
 _COOKIES = {'GSP': 'ID={0}:CF=4'.format(_GOOGLEID)}
@@ -65,8 +66,7 @@ def _get_page(pagerequest):
     if resp.status_code == 200:
         return resp.text
     else:
-        print("Encountered status code: " + str(resp.status_code))
-        _SESSION = requests.Session()
+        tqdm.write("Encountered status code: " + str(resp.status_code))
         return _get_page(pagerequest)
 
 

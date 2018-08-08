@@ -5,7 +5,17 @@ import numpy as np
 import datetime
 import time
 import json
+import scopus_api_keys
+import requests
 
+
+
+def get_api_keys():
+    keys = scopus_api_keys.keys
+    for key in keys:
+        yield key
+
+key_generator = get_api_keys()
 
 def get_author_name(x):
     name = ""
@@ -13,28 +23,42 @@ def get_author_name(x):
         name += x.given_name
 
     if x.surname is not None:
-        name += x.surname
+        name += " " + x.surname
 
     return name
 
 
 def search_author_pubs(first, last, affil):
-    if affil is np.NaN:
-        print("No affil..")
-        s = AuthorSearch('AUTHLASTNAME(' + last + ') and AUTHFIRST(' + first + ')', refresh=True)
-    else:
-        s = AuthorSearch('AUTHLASTNAME(' + last + ') and AUTHFIRST(' + first + ') and AFFIL(' + affil + ')', refresh=True)
+    global key_generator
 
-    if len(s.authors) == 0:
-        print("Narrowing search to name only")
-        s = AuthorSearch('AUTHLASTNAME(' + first + ') and AUTHFIRST(' + last + ')', refresh=True)
+    try:
+        if affil is np.NaN:
+            print("No affil..")
+            s = AuthorSearch('AUTHLASTNAME(' + last + ') and AUTHFIRST(' + first + ')', refresh=True)
+        else:
+            s = AuthorSearch('AUTHLASTNAME(' + last + ') and AUTHFIRST(' + first + ') and AFFIL(' + affil + ')', refresh=True)
 
-        if s._json == []:
-            return None
+        if len(s.authors) == 0:
+            print("Narrowing search to name only")
+            s = AuthorSearch('AUTHLASTNAME(' + first + ') and AUTHFIRST(' + last + ')', refresh=True)
 
-    if len(s.authors)==1:
-        return scopus.ScopusAuthor(s.authors[0].eid).get_abstracts()
+            if s._json == []:
+                return None
+
+        if len(s.authors)==1:
+            return scopus.ScopusAuthor(s.authors[0].eid).get_abstracts()
+    except requests.exceptions.HTTPError:
+        print("Switching API Keys..")
+        scopus.MY_API_KEY = next(key_generator)
+        return search_author_pubs(first, last, affil)
+
     return -1
+
+
+def new_entry_to_file(name, entry):
+   hs = open(name,"a")
+   hs.write(entry + '\n')
+   hs.close()
 
 
 def start_crawler(input_df, save_name, start=0, load_from=None):
@@ -44,15 +68,11 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
     else:
         result_columns = list(input_df.columns.values)
         result_columns = np.append(result_columns,
-                                   ['article_title', 'authors', 'year', 'journal',
-                                    'raw', 'date_collected', 'source'])
+                                   ['article_title', 'year', 'authors', 'journal', 'abstract', 
+                                    'cited_by', 'raw', 'source', 'date_collected'])
         result_df = pd.DataFrame(columns=result_columns)
 
 
-
-    # Names of authors that returned no search result
-    no_results = []
-    multiple_results = []
 
     # For each publication, construct new row
     # NOTE: takes about 6s for each publication (query delay)
@@ -81,12 +101,13 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
 
         # If no search result add to manual review and skip
         if pubs == -1:
-            multiple_results.append(full_name)
             print("Multiple results for " + full_name + ". Added to multiple results review.")
+            new_entry_to_file('scopus_multiple_results.txt', full_name)
             continue
         if pubs == None:
-            no_results.append(full_name)
             print("No results for " + full_name + ". Added to no results review.")
+            new_entry_to_file('scopus_no_results.txt', full_name)
+
             continue
 
         print("Found " + str(len(pubs)) + " publications")
@@ -110,6 +131,7 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
             author_names = " and ".join([get_author_name(x) for x in pub.authors])
             year = int(pub.coverDate[0:4])
             journal = pub.publicationName
+            abstract = pub.abstract
 
             # Create APA Citation from data given
             pre_raw = vars(pub)
@@ -123,13 +145,15 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
             cited_by = pub.citedby_count
 
             new_row.append(title)
-            new_row.append(author_names)
             new_row.append(year)
+            new_row.append(author_names)
             new_row.append(journal)
-            new_row.append(raw)
+            new_row.append(abstract)
             new_row.append(cited_by)
-            new_row.append(date)
+            new_row.append(raw)
             new_row.append("Scopus")
+            new_row.append(date)
+            
 
             # Append row to dataframe
             result_df.loc[result_df.shape[0]] = new_row
@@ -138,22 +162,18 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
         result_df.to_csv(save_name)
         print("Completed")
 
-        f = open('no_results_scopus.txt', 'w')
-        f.write('\n'.join([x for x in no_results]))
-        f.close()
+        
 
-        f2 = open('multiple_results_scopus.txt', 'w')
-        f2.write('\n'.join([x for x in multiple_results]))
-        f2.close()
+        
 
 
     return result_df
 
 
 def main():
-    scopus.load_api_key()
-    example_df = pd.read_csv('all_researchers.csv')
-    start_crawler(example_df, 'NESCent_Scopus.csv')
+    scopus.MY_API_KEY = next(key_generator)
+    example_df = pd.read_csv('all_researchers.csv', index_col=0)
+    start_crawler(example_df, 'NESCent_Scopus.csv', 15, 'NESCent_Scopus.csv')
     print("Completed")
 
 

@@ -177,7 +177,7 @@ def main():
 
     try:
         scholarly.supress_warnings()
-        start_crawler(example_df, 'NESCent_ID.csv', 2, 'NESCent_ID.csv')
+        start_crawler(example_df, 'NESCent_ID.csv', 440, 'NESCent_ID.csv')
         pprint("Completed")
         end_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
         pprint("Start: " + start_time + "   End:   " + end_time)

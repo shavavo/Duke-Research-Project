@@ -12,12 +12,19 @@ import crawlera_proxies
 import re
 import xml.dom.minidom
 from tqdm import tqdm
+import re
+from multiprocessing import Pool
+
 
 _SESSION = requests.session()
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 proxies = crawlera_proxies.proxies
 
+def parse_authors(authors):
+    authors = [x for x in authors if len(x.getElementsByTagName("LastName"))==1 and len(x.getElementsByTagName("ForeName"))==1]
+    author_names = [x.getElementsByTagName("ForeName")[0].firstChild.data + " " + x.getElementsByTagName("LastName")[0].firstChild.data for x in authors]
+    return author_names
 
 def get_page_content(url, retry=0):
     global _SESSION
@@ -56,16 +63,20 @@ def search_pubmed(query):
 
 
 def get_pubmed_pub(pubid):
-    full_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=" + pubid + "&retmode=xml"
+    full_url1 = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=" + pubid + "&retmode=xml"
+    full_url2 = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=' + pubid + '&retmode=json'
 
-    content = get_page_content(full_url)
+    with Pool(2) as p:
+        contents = p.map(get_page_content, [full_url1, full_url2])
+
+    content1 = contents[0]
+    content2 = contents[1]
     
-    if content is None:
+    if content1 is None:
         return []
     
-    e = xml.dom.minidom.parseString(content)
-    
-    content2 = get_page_content('https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=' + pubid + '&retmode=json')
+    e = xml.dom.minidom.parseString(content1)
+
     x = json.loads(content2)
     stripped_pub = list(x['result'].values())[1]
     
@@ -146,16 +157,22 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
         for pub, ref in zip(pubs, refs):
             new_row = base_row[:]
 
-            
-            title = pub.getElementsByTagName("ArticleTitle")[0].firstChild.data
-            author_names = " and ".join([x.getElementsByTagName("ForeName")[0].firstChild.data + " " + x.getElementsByTagName("LastName")[0].firstChild.data for x in pub.getElementsByTagName("Author")])
+            try:
+                title = pub.getElementsByTagName("ArticleTitle")[0].firstChild.data
+            except AttributeError:
+                title = re.sub('<[^<]+?>', '', pub.getElementsByTagName("ArticleTitle")[0].toxml())
+            except IndexError:
+                title = pub.getElementsByTagName("BookTitle")[0].firstChild.data
+
+            author_names = " and ".join(parse_authors(pub.getElementsByTagName("Author")))
             try:
                 year = int(pub.getElementsByTagName("PubDate")[0].getElementsByTagName("Year")[0].firstChild.data)
             except IndexError:
-                year = int(pub.getElementsByTagName("MedlineDate")[0].firstChild.data[0:4])
+                year = int(re.search('\d{4}', pub.getElementsByTagName("MedlineDate")[0].toxml()).group(0))
 
             try:
-                abstract = pub.getElementsByTagName("AbstractText")[0].firstChild.data
+                abstract = pub.getElementsByTagName("AbstractText")[0].toxml()
+                abstract = re.sub('<[^<]+?>', '', abstract)
             except IndexError:
                 abstract = ""
 
@@ -164,7 +181,7 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
             except IndexError:
                 journal = ""
 
-            raw = pub.toxml().replace('\n', '')
+            raw = re.sub('\n\s*', '', pub.toxml())
             cited_by = ref
             date = datetime.datetime.today().strftime('%Y-%m-%d')
 
@@ -196,8 +213,8 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
 
 
 def main():
-    example_df = pd.read_csv('all_researchers.csv', index_col=0)
-    start_crawler(example_df, 'NESCent_PubMed.csv')
+    example_df = pd.read_csv('all_researchers.csv', index_col=0 )
+    start_crawler(example_df, 'NESCent_PubMed.csv', 102,'NESCent_PubMed.csv')
     print("Completed")
 
 

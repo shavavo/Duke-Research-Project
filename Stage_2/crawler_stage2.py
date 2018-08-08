@@ -8,6 +8,7 @@ import requests
 import datetime
 import time
 import json
+import bs4
 
 # NOTE: scholarly also includes built in 5s wait time between queries
 
@@ -27,60 +28,16 @@ last_author_name = ""
 last_author_index = 0
 start_time = now.strftime("%Y-%m-%d %H:%M")
 
-last_refresh = time.time()
 
-
-def check_tor_proxy():
-    return 'Congratulations' in requests.get('http://check.torproject.org/').text
-
-
-def make_APA_citation(bib):
-    # Turns David B. Cheng into Cheng, D. B.
-    author_names = bib.get('author', '').split(' and ')
-    author_names_split = [list(reversed(name.split())) for name in author_names]
-    for author in author_names_split:
-        if len(author) == 0:
-            continue
-
-        author[0] = author[0] + ','
-        author[-1] = author[-1][0] + '.'
-
-        if len(author) == 3:
-            author[1] = author[1] + '.'
-            # Switch front and middle inital
-            author[1], author[2] = author[2], author[1]
-
-    author_names_initial = [' '.join(name) for name in author_names_split]
-    if len(author_names_initial) > 1:
-        authors = ', '.join(author_names_initial[0:-2]) + ' & ' + author_names_initial[-1]
-    else:
-        authors = author_names_initial[0]
-
-    year = " (" + str(bib.get('year', 'n.d')) + "). "
-
-    title = bib.get('title', '') + '. '
-
-    journal = bib.get('journal', '') + ', ' + bib.get('volume', '(n.v.)') + "(" + bib.get('number', 'n.i.') + "), "
-    pages = bib.get('pages', '') + '. '
-    url = bib.get('url', '')
-
-    citation = authors + year + title + journal + pages
-
-    if url is not '':
-        citation += "Retrieved from " + url + '. '
-
-    return citation
 
 
 def start_crawler(input_df_name, save_name, start=0, load_from=False):
-    global last_refresh
-
     input_df = pd.read_csv(input_df_name)
 
     if load_from:
         result_df = pd.read_csv(save_name, index_col=0)
     else:
-        result_df = pd.DataFrame(columns=["name", "initials", "institution", "department", "discipline", "publication", "author", "year", "journal", "raw", "date_collected", "cited_by"])
+        result_df = pd.DataFrame(columns=["NameFirst", "NameLast", "institution", "profession", "dept_current", "article_title", "year", "authors", "journal", "abstract", "cited_by", "raw", "source", "date_collected"])
     
     for index, row in input_df[start:].iterrows():
         print("Working on author index: " + str(index))
@@ -88,8 +45,7 @@ def start_crawler(input_df_name, save_name, start=0, load_from=False):
         initials = row["Google Scholar Middle Initial"]
 
         name = row["Input.name"]
-        name = name.replace('-', ' ')
-        name_split = name.split()
+        name_split = name.replace('-', ' ').split()
 
         if len(name_split) > 2:
             query = initials
@@ -103,9 +59,12 @@ def start_crawler(input_df_name, save_name, start=0, load_from=False):
         no_result_count = 0
         result_number = 0
 
-        base_row = [name, initials, row["Input.university"], row["Input.department"], row["Input.discipline"]]
+        firstName = " ".join(name.split()[0:-1])
+        lastName = name.split()[-1]
 
-        while no_result_count < 10:
+        base_row = [firstName, lastName, row["Input.university"], row["Input.discipline"], row["Input.department"] ]
+
+        while no_result_count < 15:
             while True:
                 try:
                     publication = next(search_query)
@@ -148,9 +107,18 @@ def start_crawler(input_df_name, save_name, start=0, load_from=False):
                 author_names = bib.get('author', '')
                 year = bib.get('year', np.NaN)
                 journal = bib.get('journal', '')
+                abstract = bib.get('abstract', '')
 
-                # Create APA Citation from data given
-                raw = json.dumps(vars(publication))
+                if isinstance(abstract, bs4.element.Tag):
+                    abstract = abstract.text
+
+                raw_dict = vars(publication)
+
+                try:
+                    raw_dict['bib']['abstract'] = abstract
+                    raw = json.dumps(raw_dict)   
+                except KeyError:
+                    raw = json.dumps(raw_dict)
 
                 date = datetime.datetime.today().strftime('%Y-%m-%d')
 
@@ -161,12 +129,15 @@ def start_crawler(input_df_name, save_name, start=0, load_from=False):
 
                 new_row = base_row[:]
                 new_row.append(title)
-                new_row.append(author_names)
                 new_row.append(year)
+                new_row.append(author_names)
                 new_row.append(journal)
-                new_row.append(raw)
-                new_row.append(date)
+                new_row.append(abstract)
                 new_row.append(cited_by)
+                new_row.append(raw)
+                new_row.append("Google Scholar")
+                new_row.append(date)
+                
 
                 # Append row to dataframe
                 result_df.loc[result_df.shape[0]] = new_row
@@ -179,19 +150,12 @@ def start_crawler(input_df_name, save_name, start=0, load_from=False):
 
 
 def main():
-    # try:
     scholarly.supress_warnings()
-    start_crawler('turk_grouped_with_middle_initial_only.csv', 'NESCent_No_ID.csv', load_from=True, start=54)
+    start_crawler('turk_grouped_with_middle_initial_only.csv', 'NESCent_No_ID.csv', 1, True)
     print("Completed")
     end_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     print("Start: " + start_time + "   End:   " + end_time)
-    # except Exception as e:
-    #     print(e)
-    #     print(traceback.format_exc())
-    #     print("Interrupted")
-    #     end_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    #     print("Start: " + start_time + "   End:   " + end_time)
-    #     print("Last Worked on: " + last_author_name + " (index " + str(last_author_index) + ")")
+  
 
 
 if __name__ == "__main__":
