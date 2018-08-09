@@ -64,7 +64,7 @@ def start_crawler(input_df_name, save_name, start=0, load_from=False):
 
         base_row = [firstName, lastName, row["Input.university"], row["Input.discipline"], row["Input.department"] ]
 
-        while no_result_count < 15:
+        while no_result_count < 10:
             while True:
                 try:
                     publication = next(search_query)
@@ -151,7 +151,7 @@ def start_crawler(input_df_name, save_name, start=0, load_from=False):
 
 def main():
     scholarly.supress_warnings()
-    start_crawler('turk_grouped_with_middle_initial_only.csv', 'NESCent_No_ID.csv', 1, True)
+    start_crawler('turk_grouped_with_middle_initial_only.csv', 'NESCent_No_ID.csv', 2, True)
     print("Completed")
     end_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     print("Start: " + start_time + "   End:   " + end_time)

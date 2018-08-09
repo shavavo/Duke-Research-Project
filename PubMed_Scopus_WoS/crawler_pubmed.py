@@ -214,7 +214,7 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
 
 def main():
     example_df = pd.read_csv('all_researchers.csv', index_col=0 )
-    start_crawler(example_df, 'NESCent_PubMed.csv', 102,'NESCent_PubMed.csv')
+    start_crawler(example_df, 'NESCent_PubMed.csv', 146,'NESCent_PubMed.csv')
     print("Completed")
 
 

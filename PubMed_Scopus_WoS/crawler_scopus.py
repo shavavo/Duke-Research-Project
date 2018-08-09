@@ -7,7 +7,7 @@ import time
 import json
 import scopus_api_keys
 import requests
-
+import re
 
 
 def get_api_keys():
@@ -36,13 +36,14 @@ def search_author_pubs(first, last, affil):
             print("No affil..")
             s = AuthorSearch('AUTHLASTNAME(' + last + ') and AUTHFIRST(' + first + ')', refresh=True)
         else:
-            s = AuthorSearch('AUTHLASTNAME(' + last + ') and AUTHFIRST(' + first + ') and AFFIL(' + affil + ')', refresh=True)
+            clean_affil = re.sub('[^0-9a-zA-Z ]+', '', affil)
+            s = AuthorSearch('AUTHLASTNAME(' + last + ') and AUTHFIRST(' + first + ') and AFFIL(' + clean_affil + ')', refresh=True)
 
         if len(s.authors) == 0:
             print("Narrowing search to name only")
-            s = AuthorSearch('AUTHLASTNAME(' + first + ') and AUTHFIRST(' + last + ')', refresh=True)
+            s = AuthorSearch('AUTHLASTNAME(' + last + ') and AUTHFIRST(' + first + ')', refresh=True)
 
-            if s._json == []:
+            if len(s.authors) == 0:
                 return None
 
         if len(s.authors)==1:
@@ -173,7 +174,7 @@ def start_crawler(input_df, save_name, start=0, load_from=None):
 def main():
     scopus.MY_API_KEY = next(key_generator)
     example_df = pd.read_csv('all_researchers.csv', index_col=0)
-    start_crawler(example_df, 'NESCent_Scopus.csv', 15, 'NESCent_Scopus.csv')
+    start_crawler(example_df, 'NESCent_Scopus.csv', 229, 'NESCent_Scopus.csv')
     print("Completed")
 
 
