@@ -3,6 +3,8 @@
 
 """scholarly.py"""
 
+#this code is a Python script that uses the scholarly library to search for authors on Google Scholar and retrieve information about authors and or publications.
+
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 from bs4 import BeautifulSoup
@@ -100,7 +102,6 @@ def _search_citation_soup(soup):
             soup = _get_soup(_HOST+url)
         else:
             break
-
 
 class Publication(object):
     """Returns an object for a single publication"""
