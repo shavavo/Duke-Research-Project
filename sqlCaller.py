@@ -4,6 +4,8 @@ import peewee
 from peewee import *
 import sqlCredentials
 
+#This code defines a Python script that interacts with a MySQL database to populate tables with data extracted from CSV files. 
+#The script uses the Peewee library as an Object-Relational Mapping (ORM) tool to handle the database operations.
 db = MySQLDatabase(sqlCredentials.name, user=sqlCredentials.user, passwd=sqlCredentials.password, port=sqlCredentials.port)
 
 
